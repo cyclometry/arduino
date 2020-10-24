@@ -12,6 +12,12 @@ BLEBas  blebas;  // battery
 int analogPin = A0; // linear Hall magnetic sensor analog interface
 int hallValue; // hall sensor analog value
 
+// temporary var to simulate time until we add the RTC
+long currentTimestamp = 1000;
+
+// the category of this device for collection type identification. maybe make this a parameter or based on the sensor characteristic
+int category = 1;
+
 void setup()
 {
   Serial.begin(115200);
@@ -93,11 +99,13 @@ void startAdv(void)
 
 void loop()
 {
+  currentTimestamp++;
+  
   hallValue = analogRead(analogPin);
   // Serial.println(hallValue);
   
-  char buffer[4];
-  sprintf (buffer, "%i", hallValue);  
+  char buffer[32];
+  sprintf (buffer, "%i:%i:%i", category, currentTimestamp, hallValue);  
   bleuart.write(buffer, sizeof(buffer));
 
   // todo - collect a batch of finer-grained timestamped measurements and send those. e.g. send batches of 20 measurements per second?
