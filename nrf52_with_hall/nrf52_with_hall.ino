@@ -12,11 +12,6 @@ BLEBas  blebas;  // battery
 int analogPin = A0; // linear Hall magnetic sensor analog interface
 int hallValue; // hall sensor analog value
 
-// temporary var to simulate time until we add the RTC
-long currentTimestamp = 1000;
-
-// the category of this device for collection type identification. maybe make this a parameter or based on the sensor characteristic
-int category = 1;
 
 void setup()
 {
@@ -97,16 +92,79 @@ void startAdv(void)
   Bluefruit.Advertising.start(0);                // 0 = Don't stop advertising after n seconds  
 }
 
+
+
+// used to track the time when the activity was started, for calculating elapsed time at each measurement event
+unsigned long elapsedStartMillis = 0;
+
+// used to read commands from the manager. the format is: $command_action:$any_params_for_the_action  
+// e.g. "1" to stop recording
+//      "2corner x" to name the activity
+//      "3" to start recording
+String inputString;
+
+enum commandAction {
+  STOP_RECORDING = 0,
+  NAME_ACTIVITY = 1,
+  START_RECORDING = 2
+};
+enum commandAction currentCommand;
+
+enum recordingState {
+  STOPPED, RECORDING
+};
+enum recordingState currentRecordingState = STOPPED;
+
+// default the activity name, but the controller should be expected to send a name command
+String activity = "unnamed";
+
+// the category of this device for collection type identification. maybe make this a parameter or based on the sensor characteristic
+int category = 1;
+
 void loop()
 {
-  currentTimestamp++;
-  
-  hallValue = analogRead(analogPin);
-  // Serial.println(hallValue);
-  
-  char buffer[32];
-  sprintf (buffer, "%i:%i:%i", category, currentTimestamp, hallValue);  
-  bleuart.write(buffer, sizeof(buffer));
+
+  // read and respond to any commands sent to us using the defined command_action and inputString values
+  while (bleuart.available()) {
+    uint8_t ch;
+    ch = (uint8_t) bleuart.read();
+    inputString += ch;
+  }
+  if (inputString.length() > 0) {
+    Serial.println(inputString);
+
+    int foo = inputString.substring(0, 2).toInt();
+    Serial.print("foo is ");
+    Serial.println(foo);
+    
+    currentCommand = (commandAction)(inputString.substring(0, 2).toInt() - 48);
+    
+    if (currentCommand == STOP_RECORDING) {
+        Serial.println("received STOP_RECORDING command");
+        currentRecordingState = STOPPED;
+    } else if (currentCommand == START_RECORDING) {
+        Serial.println("received START_RECORDING command");
+        currentRecordingState = RECORDING;
+        // set the start millis to the current value of the system clock (time since power on)
+        elapsedStartMillis = millis();
+    } else if (currentCommand == NAME_ACTIVITY) {
+        Serial.println("received NAME_ACTIVITY command");
+        // the activity name is expected to be the value after the first character of the inputString
+        activity = inputString.substring(2);
+    }
+    
+    inputString = ""; // clear the command
+  }
+
+  if (currentRecordingState == RECORDING) {
+      hallValue = analogRead(analogPin);
+      // Serial.println(hallValue);
+
+      // send category, elapsed time millis, sensor value
+      char buffer[32];
+      sprintf (buffer, "%i:%i:%i", category, millis() - elapsedStartMillis, hallValue);  
+      bleuart.write(buffer, sizeof(buffer));
+  }
 
   // todo - collect a batch of finer-grained timestamped measurements and send those. e.g. send batches of 20 measurements per second?
   delay(500);
