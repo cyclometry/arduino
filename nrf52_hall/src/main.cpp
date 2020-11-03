@@ -1,3 +1,4 @@
+#include "Arduino.h"
 #include <bluefruit.h>
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
@@ -193,3 +194,4 @@ void loop()
     // todo - collect a batch of finer-grained timestamped measurements and send those. e.g. send batches of 20 measurements per second?
     delay(500);
 }
+

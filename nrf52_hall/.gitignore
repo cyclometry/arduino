@@ -1,0 +1,5 @@
+.pio
+cmake-build-debug
+cmake-build-adafruit_feather_nrf52832
+/CMakeLists.txt
+/CMakeListsPrivate.txt
