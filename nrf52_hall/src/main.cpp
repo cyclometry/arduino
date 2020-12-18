@@ -1,24 +1,24 @@
+#include "Arduino.h"
 #include <bluefruit.h>
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
 
 // BLE Service
-BLEDfu  bledfu;  // OTA DFU service
-BLEDis  bledis;  // device information
+BLEDfu bledfu;  // OTA DFU service
+BLEDis bledis;  // device information
 BLEUart bleuart; // uart over ble
-BLEBas  blebas;  // battery
+BLEBas blebas;  // battery
 
 // Hall Switch vars
 int analogPin = A0; // linear Hall magnetic sensor analog interface
 int hallValue; // hall sensor analog value
 
 // callback invoked when central connects
-void connect_callback(uint16_t conn_handle)
-{
+void connect_callback(uint16_t conn_handle) {
     // Get the reference to current connection
-    BLEConnection* connection = Bluefruit.Connection(conn_handle);
+    BLEConnection *connection = Bluefruit.Connection(conn_handle);
 
-    char central_name[32] = { 0 };
+    char central_name[32] = {0};
     connection->getPeerName(central_name, sizeof(central_name));
 
     Serial.print("Connected to ");
@@ -30,17 +30,16 @@ void connect_callback(uint16_t conn_handle)
  * @param conn_handle connection where this event happens
  * @param reason is a BLE_HCI_STATUS_CODE which can be found in ble_hci.h
  */
-void disconnect_callback(uint16_t conn_handle, uint8_t reason)
-{
+void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
     (void) conn_handle;
     (void) reason;
 
     Serial.println();
-    Serial.print("Disconnected, reason = 0x"); Serial.println(reason, HEX);
+    Serial.print("Disconnected, reason = 0x");
+    Serial.println(reason, HEX);
 }
 
-void startAdv()
-{
+void startAdv() {
     // Advertising packet
     Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
     Bluefruit.Advertising.addTxPower();
@@ -67,8 +66,7 @@ void startAdv()
     Bluefruit.Advertising.start(0);                // 0 = Don't stop advertising after n seconds
 }
 
-void setup()
-{
+void setup() {
     Serial.begin(115200);
 
 #if CFG_DEBUG
@@ -91,7 +89,7 @@ void setup()
 
     Bluefruit.begin();
     Bluefruit.setTxPower(4);    // Check bluefruit.h for supported values
-    Bluefruit.setName("Bluefruit52");
+    Bluefruit.setName("Steering");
     //Bluefruit.setName(getMcuUniqueID()); // useful testing with multiple central connections
     Bluefruit.Periph.setConnectCallback(connect_callback);
     Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
@@ -119,21 +117,15 @@ void setup()
 }
 
 
-
-
 // used to track the time when the activity was started, for calculating elapsed time at each measurement event
 unsigned long elapsedStartMillis = 0;
 
 // used to read commands from the manager. the format is: $command_action:$any_params_for_the_action
-// e.g. "1" to stop recording
-//      "2corner x" to name the activity
-//      "3" to start recording
 String inputString;
 
 enum commandAction {
     STOP_RECORDING = 0,
-    NAME_ACTIVITY = 1,
-    START_RECORDING = 2
+    START_RECORDING = 1
 };
 enum commandAction currentCommand;
 
@@ -142,14 +134,10 @@ enum recordingState {
 };
 enum recordingState currentRecordingState = STOPPED;
 
-// default the activity name, but the controller should be expected to send a name command
-String activity = "unnamed";
-
 // the category of this device for collection type identification. maybe make this a parameter or based on the sensor characteristic
 int category = 1;
 
-void loop()
-{
+void loop() {
 
     // read and respond to any commands sent to us using the defined command_action and inputString values
     while (bleuart.available()) {
@@ -161,7 +149,7 @@ void loop()
         Serial.println(inputString);
 
         // grab the command, which will be a number sent as an ascii char
-        currentCommand = (commandAction)(inputString.substring(0, 2).toInt() - 48);
+        currentCommand = (commandAction) (inputString.substring(0, 2).toInt() - 48);
 
         if (currentCommand == STOP_RECORDING) {
             Serial.println("received STOP_RECORDING command");
@@ -171,12 +159,7 @@ void loop()
             currentRecordingState = RECORDING;
             // set the start millis to the current value of the system clock (time since power on)
             elapsedStartMillis = millis();
-        } else if (currentCommand == NAME_ACTIVITY) {
-            Serial.println("received NAME_ACTIVITY command");
-            // the activity name is expected to be the value after the first character of the inputString
-            activity = inputString.substring(2);
         }
-
         inputString = ""; // clear the command
     }
 
@@ -186,10 +169,11 @@ void loop()
 
         // send category, elapsed time millis, sensor value
         char buffer[32];
-        sprintf (buffer, "%i:%lu:%i", category, millis() - elapsedStartMillis, hallValue);
+        sprintf(buffer, "%i:%lu:%i", category, millis() - elapsedStartMillis, hallValue);
         bleuart.write(buffer, sizeof(buffer));
     }
 
     // todo - collect a batch of finer-grained timestamped measurements and send those. e.g. send batches of 20 measurements per second?
     delay(500);
 }
+
