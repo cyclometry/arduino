@@ -36,7 +36,7 @@ void setup() {
 
     Bluefruit.begin();
     Bluefruit.setTxPower(4);    // Check bluefruit.h for supported values
-    Bluefruit.setName("Bluefruit52");
+    Bluefruit.setName("SteerAngle");
     //Bluefruit.setName(getMcuUniqueID()); // useful testing with multiple central connections
     Bluefruit.Periph.setConnectCallback(connect_callback);
     Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
@@ -95,15 +95,11 @@ void startAdv(void) {
 unsigned long elapsedStartMillis = 0;
 
 // used to read commands from the manager. the format is: $command_action:$any_params_for_the_action
-// e.g. "1" to stop recording
-//      "2corner x" to name the activity
-//      "3" to start recording
 String inputString;
 
 enum commandAction {
     STOP_RECORDING = 0,
-    NAME_ACTIVITY = 1,
-    START_RECORDING = 2
+    START_RECORDING = 1
 };
 enum commandAction currentCommand;
 
@@ -111,9 +107,6 @@ enum recordingState {
     STOPPED, RECORDING
 };
 enum recordingState currentRecordingState = STOPPED;
-
-// default the activity name, but the controller should be expected to send a name command
-String activity = "unnamed";
 
 // the category of this device for collection type identification. maybe make this a parameter or based on the sensor characteristic
 int category = 1;
@@ -143,10 +136,6 @@ void loop() {
             currentRecordingState = RECORDING;
             // set the start millis to the current value of the system clock (time since power on)
             elapsedStartMillis = millis();
-        } else if (currentCommand == NAME_ACTIVITY) {
-            Serial.println("received NAME_ACTIVITY command");
-            // the activity name is expected to be the value after the first character of the inputString
-            activity = inputString.substring(2);
         }
 
         inputString = ""; // clear the command
