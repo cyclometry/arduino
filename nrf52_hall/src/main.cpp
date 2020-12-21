@@ -1,7 +1,5 @@
 #include "Arduino.h"
 #include <bluefruit.h>
-#include <Adafruit_LittleFS.h>
-#include <InternalFileSystem.h>
 
 // BLE Service
 BLEDfu bledfu;  // OTA DFU service
@@ -11,7 +9,7 @@ BLEBas blebas;  // battery
 
 // Hall Switch vars
 int analogPin = A0; // linear Hall magnetic sensor analog interface
-int hallValue; // hall sensor analog value
+uint32_t hallValue; // hall sensor analog value
 
 // callback invoked when central connects
 void connect_callback(uint16_t conn_handle) {
@@ -39,7 +37,7 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
     Serial.println(reason, HEX);
 }
 
-void startAdv() {
+void startAdv(void) {
     // Advertising packet
     Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
     Bluefruit.Advertising.addTxPower();
@@ -69,12 +67,7 @@ void startAdv() {
 void setup() {
     Serial.begin(115200);
 
-#if CFG_DEBUG
-    // Blocking wait for connection when debug mode is enabled via IDE
-  while ( !Serial ) yield();
-#endif
-
-    Serial.println("Bluefruit52 With Analog Hall");
+    Serial.println("Analog Hall Sensor device setup");
     Serial.println("---------------------------\n");
 
     // Setup the BLE LED to be enabled on CONNECT
@@ -90,7 +83,6 @@ void setup() {
     Bluefruit.begin();
     Bluefruit.setTxPower(4);    // Check bluefruit.h for supported values
     Bluefruit.setName("Steering");
-    //Bluefruit.setName(getMcuUniqueID()); // useful testing with multiple central connections
     Bluefruit.Periph.setConnectCallback(connect_callback);
     Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
 
@@ -112,8 +104,7 @@ void setup() {
     // Set up and start advertising
     startAdv();
 
-    Serial.println("Please use Adafruit's Bluefruit LE app to connect in UART mode");
-    Serial.println("Once connected, enter character(s) that you wish to send");
+    Serial.println("Started");
 }
 
 
@@ -137,9 +128,17 @@ enum recordingState currentRecordingState = STOPPED;
 // the category of this device for collection type identification. maybe make this a parameter or based on the sensor characteristic
 int category = 1;
 
+// write a string to Serial Uart and all connected BLE Uart
+void writeAll(char* str) {
+    Serial.write(str);
+    bleuart.write(str);
+}
+
 void loop() {
 
+    //
     // read and respond to any commands sent to us using the defined command_action and inputString values
+    //
     while (bleuart.available()) {
         uint8_t ch;
         ch = (uint8_t) bleuart.read();
@@ -163,17 +162,19 @@ void loop() {
         inputString = ""; // clear the command
     }
 
+    //
+    // when in recording mode, collect and write the data to bluetooth
+    //
+    char outputBuf[64];
+
     if (currentRecordingState == RECORDING) {
         hallValue = analogRead(analogPin);
-         Serial.println(hallValue);
 
         // send category, elapsed time millis, sensor value
-        char buffer[32];
-        sprintf(buffer, "%i:%lu:%i", category, millis() - elapsedStartMillis, hallValue);
-        bleuart.write(buffer, sizeof(buffer));
+        sprintf(outputBuf, "%i:%lu:%lu", category, millis() - elapsedStartMillis, hallValue);
+        writeAll(outputBuf);
     }
 
     // todo - collect a batch of finer-grained timestamped measurements and send those. e.g. send batches of 20 measurements per second?
     delay(500);
 }
-
