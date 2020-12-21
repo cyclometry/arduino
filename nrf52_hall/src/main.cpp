@@ -165,7 +165,7 @@ void loop() {
 
     if (currentRecordingState == RECORDING) {
         hallValue = analogRead(analogPin);
-        // Serial.println(hallValue);
+         Serial.println(hallValue);
 
         // send category, elapsed time millis, sensor value
         char buffer[32];
