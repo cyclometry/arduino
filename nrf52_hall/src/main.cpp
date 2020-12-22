@@ -37,7 +37,7 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
     Serial.println(reason, HEX);
 }
 
-void startAdv(void) {
+void startAdv() {
     // Advertising packet
     Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
     Bluefruit.Advertising.addTxPower();
@@ -64,7 +64,7 @@ void startAdv(void) {
     Bluefruit.Advertising.start(0);                // 0 = Don't stop advertising after n seconds
 }
 
-void setup() {
+__unused void setup() {
     Serial.begin(115200);
 
     Serial.println("Analog Hall Sensor device setup");
@@ -107,6 +107,11 @@ void setup() {
     Serial.println("Started");
 }
 
+// write a string to Serial Uart and all connected BLE Uart
+void writeAll(char *str) {
+    Serial.write(str);
+    bleuart.write(str);
+}
 
 // used to track the time when the activity was started, for calculating elapsed time at each measurement event
 unsigned long elapsedStartMillis = 0;
@@ -125,16 +130,31 @@ enum recordingState {
 };
 enum recordingState currentRecordingState = STOPPED;
 
-// the category of this device for collection type identification. maybe make this a parameter or based on the sensor characteristic
-int category = 1;
+// metric type code. maybe make this a parameter or based on the sensor characteristic.
+int metricTypeCode = 1;
 
-// write a string to Serial Uart and all connected BLE Uart
-void writeAll(char* str) {
-    Serial.write(str);
-    bleuart.write(str);
+// the buffer we fill with metrics data and send in batches
+// the buffer must be able to hold the size of the metrics data times number of batches collected per send
+char outputBuffer[1024];
+char *endOfBuffer = outputBuffer;
+unsigned int remainingSpace = sizeof(outputBuffer);
+
+void resetOutputBuffer() {
+    endOfBuffer = outputBuffer;
+    remainingSpace = sizeof(outputBuffer);
+    memset(&outputBuffer[0], 0, sizeof(outputBuffer));
 }
 
-void loop() {
+// how long it's been since we sent the metrics we've been collecting. we want to capture metrics at a higher frequency
+// than we're able to send over bluetooth, so we need to send the metrics in batches
+unsigned long lastSendTimeMillis = 0;
+
+unsigned int metricsSendFrequencyMs = 1000;
+
+// how frequently we collect the metric. i.e. how granular our data is
+unsigned int recordingFrequencyMs = 100;
+
+__unused void loop() {
 
     //
     // read and respond to any commands sent to us using the defined command_action and inputString values
@@ -165,16 +185,35 @@ void loop() {
     //
     // when in recording mode, collect and write the data to bluetooth
     //
-    char outputBuf[64];
-
     if (currentRecordingState == RECORDING) {
         hallValue = analogRead(analogPin);
 
-        // send category, elapsed time millis, sensor value
-        sprintf(outputBuf, "%i:%lu:%lu", category, millis() - elapsedStartMillis, hallValue);
-        writeAll(outputBuf);
+        // capture metricTypeCode, elapsed time millis, sensor value
+        // using ";" to delimit the entire block, and ":" to delimit each field
+        int writtenBytes = snprintf(
+                endOfBuffer,
+                remainingSpace,
+                "%i:%lu:%lu;",
+                metricTypeCode,
+                millis() - elapsedStartMillis,
+                hallValue
+        );
+
+        if (writtenBytes > 0) {
+            endOfBuffer += writtenBytes;
+            remainingSpace -= writtenBytes;
+        } else {
+            Serial.write("Something is wrong with the buffer");
+            exit(1);
+        }
     }
 
-    // todo - collect a batch of finer-grained timestamped measurements and send those. e.g. send batches of 20 measurements per second?
-    delay(500);
+    // if it's time to send the data, send it and reset the buffer and timer
+    if (millis() - lastSendTimeMillis > metricsSendFrequencyMs) {
+        writeAll(outputBuffer);
+        resetOutputBuffer();
+        lastSendTimeMillis = millis();
+    }
+
+    delay(recordingFrequencyMs);
 }
