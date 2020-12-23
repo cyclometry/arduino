@@ -11,6 +11,127 @@ BLEBas blebas;  // battery
 int analogPin = A0; // linear Hall magnetic sensor analog interface
 uint32_t hallValue; // hall sensor analog value
 
+// write a string to Serial Uart and all connected BLE Uart
+void writeAll(char *str) {
+    Serial.write(str);
+    bleuart.write(str);
+}
+
+// used to track the time when the activity was started, for calculating elapsed time at each measurement event
+unsigned long elapsedStartMillis = 0;
+
+// used to read commands from the manager. the format is: $command_action:$any_params_for_the_action
+String inputString;
+
+enum commandAction {
+    STOP_RECORDING = 0,
+    START_RECORDING = 1
+};
+enum commandAction currentCommand;
+
+enum transmissionState {
+    OFF, ON
+};
+enum transmissionState currentTransmissionState = OFF;
+
+// metric type code. maybe make this a parameter or based on the sensor characteristic.
+int metricTypeCode = 1;
+
+// the buffer we fill with metrics data and send in batches
+// the buffer must be able to hold the size of the metrics data times number of batches collected per send
+char outputBuffer[1024];
+char *endOfBuffer = outputBuffer;
+unsigned int remainingSpace = sizeof(outputBuffer);
+
+void resetOutputBuffer() {
+    endOfBuffer = outputBuffer;
+    remainingSpace = sizeof(outputBuffer);
+    memset(&outputBuffer[0], 0, sizeof(outputBuffer));
+}
+
+void stopRecording() {
+    Serial.println("stopRecording called");
+    currentTransmissionState = OFF;
+}
+
+void startRecording() {
+    Serial.println("startRecording called");
+    currentTransmissionState = ON;
+    // set the start millis to the current value of the system clock (time since power on)
+    elapsedStartMillis = millis();
+}
+
+// how long it's been since we sent the metrics we've been collecting. we want to capture metrics at a higher frequency
+// than we're able to send over bluetooth, so we need to send the metrics in batches
+unsigned long lastSendTimeMillis = 0;
+
+unsigned int metricsSendFrequencyMs = 1000;
+
+// how frequently we collect the metric. i.e. how granular our data is
+unsigned int recordingFrequencyMs = 200;
+
+__unused void loop() {
+
+    //
+    // read and respond to any commands sent to us using the defined command_action and inputString values
+    //
+    while (bleuart.available()) {
+        uint8_t ch;
+        ch = (uint8_t) bleuart.read();
+        inputString += ch;
+    }
+    if (inputString.length() > 0) {
+        Serial.println(inputString);
+
+        // grab the command, which will be a number sent as an ascii char
+        currentCommand = (commandAction) (inputString.substring(0, 2).toInt() - 48);
+        if (currentCommand == STOP_RECORDING) {
+            stopRecording();
+        } else if (currentCommand == START_RECORDING) {
+            startRecording();
+        }
+        inputString = ""; // clear the command
+    }
+
+    //
+    // while transmission is on, collect and write the data to bluetooth
+    //
+    if (currentTransmissionState == ON) {
+        hallValue = analogRead(analogPin);
+
+        // capture metricTypeCode, elapsed time millis, sensor value
+        // using ";" to delimit the entire block, and ":" to delimit each field
+        int writtenBytes = snprintf(
+                endOfBuffer,
+                remainingSpace,
+                "%i:%lu:%lu;",
+                metricTypeCode,
+                millis() - elapsedStartMillis,
+                hallValue
+        );
+
+        if (writtenBytes > 0) {
+            endOfBuffer += writtenBytes;
+            remainingSpace -= writtenBytes;
+        } else {
+            Serial.write("Something is wrong with the buffer");
+            exit(1);
+        }
+    }
+
+    // if it's time to send the data, send it and reset the buffer and timer
+    if (millis() - lastSendTimeMillis > metricsSendFrequencyMs) {
+        // remove the last trailing delimiter so we pass a cleanly delimited set of metrics
+        outputBuffer[strlen(outputBuffer)-1] = '\0';
+
+        writeAll(outputBuffer);
+        resetOutputBuffer();
+        lastSendTimeMillis = millis();
+    }
+
+    delay(recordingFrequencyMs);
+}
+
 // callback invoked when central connects
 void connect_callback(uint16_t conn_handle) {
     // Get the reference to current connection
@@ -21,6 +142,8 @@ void connect_callback(uint16_t conn_handle) {
 
     Serial.print("Connected to ");
     Serial.println(central_name);
+
+    currentTransmissionState = ON;
 }
 
 /**
@@ -35,6 +158,8 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
     Serial.println();
     Serial.print("Disconnected, reason = 0x");
     Serial.println(reason, HEX);
+
+    stopRecording();
 }
 
 void startAdv() {
@@ -104,119 +229,5 @@ __unused void setup() {
     // Set up and start advertising
     startAdv();
 
-    Serial.println("Started");
-}
-
-// write a string to Serial Uart and all connected BLE Uart
-void writeAll(char *str) {
-    Serial.write(str);
-    bleuart.write(str);
-}
-
-// used to track the time when the activity was started, for calculating elapsed time at each measurement event
-unsigned long elapsedStartMillis = 0;
-
-// used to read commands from the manager. the format is: $command_action:$any_params_for_the_action
-String inputString;
-
-enum commandAction {
-    STOP_RECORDING = 0,
-    START_RECORDING = 1
-};
-enum commandAction currentCommand;
-
-enum recordingState {
-    STOPPED, RECORDING
-};
-enum recordingState currentRecordingState = STOPPED;
-
-// metric type code. maybe make this a parameter or based on the sensor characteristic.
-int metricTypeCode = 1;
-
-// the buffer we fill with metrics data and send in batches
-// the buffer must be able to hold the size of the metrics data times number of batches collected per send
-char outputBuffer[1024];
-char *endOfBuffer = outputBuffer;
-unsigned int remainingSpace = sizeof(outputBuffer);
-
-void resetOutputBuffer() {
-    endOfBuffer = outputBuffer;
-    remainingSpace = sizeof(outputBuffer);
-    memset(&outputBuffer[0], 0, sizeof(outputBuffer));
-}
-
-// how long it's been since we sent the metrics we've been collecting. we want to capture metrics at a higher frequency
-// than we're able to send over bluetooth, so we need to send the metrics in batches
-unsigned long lastSendTimeMillis = 0;
-
-unsigned int metricsSendFrequencyMs = 1000;
-
-// how frequently we collect the metric. i.e. how granular our data is
-unsigned int recordingFrequencyMs = 200;
-
-__unused void loop() {
-
-    //
-    // read and respond to any commands sent to us using the defined command_action and inputString values
-    //
-    while (bleuart.available()) {
-        uint8_t ch;
-        ch = (uint8_t) bleuart.read();
-        inputString += ch;
-    }
-    if (inputString.length() > 0) {
-        Serial.println(inputString);
-
-        // grab the command, which will be a number sent as an ascii char
-        currentCommand = (commandAction) (inputString.substring(0, 2).toInt() - 48);
-
-        if (currentCommand == STOP_RECORDING) {
-            Serial.println("received STOP_RECORDING command");
-            currentRecordingState = STOPPED;
-        } else if (currentCommand == START_RECORDING) {
-            Serial.println("received START_RECORDING command");
-            currentRecordingState = RECORDING;
-            // set the start millis to the current value of the system clock (time since power on)
-            elapsedStartMillis = millis();
-        }
-        inputString = ""; // clear the command
-    }
-
-    //
-    // when in recording mode, collect and write the data to bluetooth
-    //
-    if (currentRecordingState == RECORDING) {
-        hallValue = analogRead(analogPin);
-
-        // capture metricTypeCode, elapsed time millis, sensor value
-        // using ";" to delimit the entire block, and ":" to delimit each field
-        int writtenBytes = snprintf(
-                endOfBuffer,
-                remainingSpace,
-                "%i:%lu:%lu;",
-                metricTypeCode,
-                millis() - elapsedStartMillis,
-                hallValue
-        );
-
-        if (writtenBytes > 0) {
-            endOfBuffer += writtenBytes;
-            remainingSpace -= writtenBytes;
-        } else {
-            Serial.write("Something is wrong with the buffer");
-            exit(1);
-        }
-    }
-
-    // if it's time to send the data, send it and reset the buffer and timer
-    if (millis() - lastSendTimeMillis > metricsSendFrequencyMs) {
-        // remove the last trailing delimiter so we pass a cleanly delimited set of metrics
-        outputBuffer[strlen(outputBuffer)-1] = '\0';
-
-        writeAll(outputBuffer);
-        resetOutputBuffer();
-        lastSendTimeMillis = millis();
-    }
-
-    delay(recordingFrequencyMs);
+    Serial.println("Setup Call Complete");
 }
