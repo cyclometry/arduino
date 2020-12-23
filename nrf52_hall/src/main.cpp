@@ -152,7 +152,7 @@ unsigned long lastSendTimeMillis = 0;
 unsigned int metricsSendFrequencyMs = 1000;
 
 // how frequently we collect the metric. i.e. how granular our data is
-unsigned int recordingFrequencyMs = 100;
+unsigned int recordingFrequencyMs = 200;
 
 __unused void loop() {
 
@@ -210,6 +210,9 @@ __unused void loop() {
 
     // if it's time to send the data, send it and reset the buffer and timer
     if (millis() - lastSendTimeMillis > metricsSendFrequencyMs) {
+        // remove the last trailing delimiter so we pass a cleanly delimited set of metrics
+        outputBuffer[strlen(outputBuffer)-1] = '\0';
+
         writeAll(outputBuffer);
         resetOutputBuffer();
         lastSendTimeMillis = millis();
